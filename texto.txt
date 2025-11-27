@@ -1,0 +1,104 @@
+def run_simulation(config=CONFIG, sim_time=RUN_TIME):
+    df = load_data(config)
+
+    if config["override_doctors"]:
+        num_doctors = config["override_doctors"]
+    elif df is not None:
+        num_doctors = int(df["doctors_on_duty"].mode()[0])
+    else:
+        num_doctors = 2
+
+    env = simpy.Environment()
+    system = CamiulaSystem(env, num_doctors=num_doctors)
+
+    if df is not None:
+        env.process(generate_from_csv(env, system, df, config))
+    else:
+        user_input = input("¿Usar generación sintética mejorada? (s/n): ").strip().lower() == 's'
+        
+        if user_input == 's':
+            
+            flag_new_synthetic = True
+        else:
+            flag_new_synthetic = False
+        
+        if flag_new_synthetic == True:
+            generate_synthetic(env, system, arrival_rate_by_hour=[5]*6 + [15]*6 + [10]*6 + [20]*6)
+            save_patients_csv("camiula_sintetico_pacientes.csv")
+            config = {"csv_path": "camiula_sintetico_pacientes.csv"}
+            df = load_data(config)
+            env.process(generate_from_csv(env, system, df, config))
+        else:
+            config = {"csv_path": "camiula_sintetico_pacientes.csv"}
+            df = load_data(config)
+            env.process(generate_from_csv(env, system, df, config))
+
+    env.run(until=sim_time)
+
+    return {
+        "wait_avg": float(np.mean(system.wait_times)) if system.wait_times else 0,
+        "wait_max": float(np.max(system.wait_times)) if system.wait_times else 0,
+        "attended": system.attended_count,
+        "derived": system.derived_count,
+        "total": system.attended_count + system.derived_count
+    }
+
+
+
+
+
+patients_log = []
+
+def generate_synthetic(env, system, arrival_rate_by_hour=None):
+    """
+    Genera pacientes sintéticos, pudiendo definir tasas de llegada por hora.
+    arrival_rate_by_hour: lista de 24 valores (pacientes por hora)
+    """
+    i = 0
+    while True:
+        current_hour = int(env.now // 60) % 24  # hora simulada
+        rate = arrival_rate_by_hour[current_hour] if arrival_rate_by_hour else 10
+        yield env.timeout(np.random.exponential(60 / rate))
+        i += 1
+
+        # Categorías y probabilidades
+        categories = ["Verde","Amarilla","Roja"]
+        cat = np.random.choice(categories, p=[0.5,0.3,0.2])
+        triage_time = max(1, np.random.exponential({"Verde":3,"Amarilla":5,"Roja":8}[cat]))
+        service_time = max(1, np.random.exponential({"Verde":10,"Amarilla":20,"Roja":40}[cat]))
+        derive_prob = {"Verde":0.05,"Amarilla":0.1,"Roja":0.2}[cat]
+
+        # Simular si se deriva o no
+        derived = int(np.random.random() < derive_prob)
+        transfer_time = np.random.exponential(20) if derived else 0
+        balked = 0  # lo puedes ajustar según reglas del hospital
+        doctors_on_duty = system.get_doctors(env.now)  # asumiendo que tu sistema tiene esto
+
+        # Guardar en DataFrame (lista)
+        patients_log.append({
+            "patient_id": i,
+            "arrival_datetime": pd.Timestamp("2025-08-01") + pd.Timedelta(minutes=env.now),
+            "hour": current_hour,
+            "category": cat,
+            "triage_time_min": triage_time,
+            "service_time_min": service_time if doctors_on_duty>0 else "",
+            "derived_intrinsic": derived,
+            "transfer_time_min": transfer_time if doctors_on_duty==0 else "",
+            "balked": balked,
+            "doctors_on_duty": doctors_on_duty,
+            "arrival_date": (pd.Timestamp("2025-08-01") + pd.Timedelta(minutes=env.now)).date(),
+            "arrival_time": (pd.Timestamp("2025-08-01") + pd.Timedelta(minutes=env.now)).time()
+        })
+
+        # Lanzar el proceso del paciente
+        env.process(system.patient_process(
+            patient=i,
+            triage_time=triage_time,
+            service_time=service_time,
+            derive_prob=derive_prob
+        ))
+
+def save_patients_csv(filename="synthetic_patients.csv"):
+    df = pd.DataFrame(patients_log)
+    df.to_csv(filename, index=False)
+    print(f"CSV guardado como {filename}")
