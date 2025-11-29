@@ -2,7 +2,7 @@ import pandas as pd
 import json
 
 # Cargar el CSV
-df = pd.read_csv("camiula_sintetico_10pacientes.csv", sep="\t")  # Usa '\t' porque tu CSV está tabulado
+df = pd.read_csv("camiula_sintetico_generado.csv", sep="\t")  # Usa '\t' porque tu CSV está tabulado
 
 # Convertir a JSON
 json_data = df.to_json(orient="records", date_format="iso")

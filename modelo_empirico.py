@@ -17,7 +17,7 @@ CONFIG = {
     "override_doctors": None,            # ej: 3 para forzar 3 médicos
     "override_triage_time": None,        # ej: lambda: np.random.exponential(2)
     "override_service_time": None,       # ej: lambda cat: np.random.exponential(5)
-    "override_transfer_prob": 0.50,      # ej: 0.15
+    "override_transfer_prob": None,      # ej: 0.15
     "verbose": True
 }
 # CONFIG = {
